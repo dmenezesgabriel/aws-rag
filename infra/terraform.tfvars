@@ -13,4 +13,4 @@ lambda_memory_size = 512 # MB
 
 log_retention_days = 7 # days
 
-bedrock_model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+bedrock_model_id = "amazon.nova-lite-v1:0"

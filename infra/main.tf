@@ -1,5 +1,13 @@
 terraform {
   required_version = ">= 1.0"
+
+  backend "s3" {
+    bucket         = "tfstate-chatbot-api"
+    key            = "infra/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -16,10 +24,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Data source for AWS account ID
 data "aws_caller_identity" "current" {}
-
-# Data source for ECR authorization
 data "aws_ecr_authorization_token" "token" {}
 
 provider "docker" {
@@ -123,18 +128,16 @@ resource "aws_ecr_repository" "lambda_repo" {
 }
 
 # ==================== Docker Image Build ====================
-# Compute a hash for Worker Lambda code
 resource "null_resource" "worker_lambda_code_hash" {
   triggers = {
     code_hash = sha256(join("", [
-      filesha256("${path.module}/../worker_lambda/worker.py"),
-      filesha256("${path.module}/../worker_lambda/pyproject.toml"),
-      filesha256("${path.module}/../worker_lambda/Dockerfile")
+      filesha256(abspath("${path.module}/../worker_lambda/worker.py")),
+      filesha256(abspath("${path.module}/../worker_lambda/pyproject.toml")),
+      filesha256(abspath("${path.module}/../worker_lambda/Dockerfile"))
     ]))
   }
 }
 
-# Build Docker Image for Worker Lambda
 resource "docker_image" "worker_lambda_image" {
   name = "${aws_ecr_repository.lambda_repo.repository_url}:${var.image_tag}"
 
@@ -245,25 +248,21 @@ resource "aws_iam_role" "worker_lambda_role" {
 }
 
 
-# Attach basic Lambda execution policy
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.worker_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Additional policy for X-Ray tracing (used by Lambda Powertools)
 resource "aws_iam_role_policy_attachment" "lambda_xray" {
   role       = aws_iam_role.worker_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
-# SQS permissions for Worker Lambda
 resource "aws_iam_role_policy_attachment" "worker_sqs" {
   role       = aws_iam_role.worker_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
 }
 
-# Policy for Worker Lambda to access DynamoDB and Bedrock
 resource "aws_iam_role_policy" "worker_lambda_policy" {
   name = "${var.project_name}-worker-lambda-policy"
   role = aws_iam_role.worker_lambda_role.id
@@ -360,8 +359,6 @@ resource "aws_lambda_function" "api_lambda" {
   }
 }
 
-
-# API Lambda Logs
 resource "aws_cloudwatch_log_group" "api_lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.api_lambda.function_name}"
   retention_in_days = var.log_retention_days
@@ -403,7 +400,6 @@ resource "aws_lambda_function" "worker_lambda" {
   }
 }
 
-# Worker Lambda Logs
 resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.worker_lambda.function_name}"
   retention_in_days = var.log_retention_days
@@ -415,7 +411,6 @@ resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
 }
 
 # ==================== API Gateway ====================
-# Create API Gateway REST API with OpenAPI spec
 resource "aws_api_gateway_rest_api" "api" {
   name        = "${var.project_name}-api"
   description = "REST API for ${var.project_name}"
@@ -434,7 +429,6 @@ resource "aws_api_gateway_rest_api" "api" {
   }
 }
 
-# API Gateway Deployment
 resource "aws_api_gateway_deployment" "api_deployment" {
   rest_api_id = aws_api_gateway_rest_api.api.id
 
@@ -454,7 +448,6 @@ resource "aws_api_gateway_deployment" "api_deployment" {
   ]
 }
 
-# API Gateway Stage
 resource "aws_api_gateway_stage" "api_stage" {
   deployment_id = aws_api_gateway_deployment.api_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.api.id
@@ -468,7 +461,6 @@ resource "aws_api_gateway_stage" "api_stage" {
   }
 }
 
-# CloudWatch Log Group for API Gateway
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/${var.project_name}"
   retention_in_days = var.log_retention_days
@@ -479,12 +471,10 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   }
 }
 
-# API Gateway Account settings for CloudWatch Logs
 resource "aws_api_gateway_account" "api_gateway_account" {
   cloudwatch_role_arn = aws_iam_role.api_gateway_cloudwatch.arn
 }
 
-# IAM Role for API Gateway to write to CloudWatch
 resource "aws_iam_role" "api_gateway_cloudwatch" {
   name = "${var.project_name}-api-gateway-cloudwatch"
 
@@ -508,7 +498,6 @@ resource "aws_iam_role_policy_attachment" "api_gateway_cloudwatch" {
 }
 
 # ==================== Lambda Permissions ====================
-# Allow API Gateway to invoke Lambda
 resource "aws_lambda_permission" "api_gateway" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
@@ -516,6 +505,3 @@ resource "aws_lambda_permission" "api_gateway" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
-
-
-
