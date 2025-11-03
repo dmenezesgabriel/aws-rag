@@ -51,3 +51,9 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "bedrock_model_id" {
+  description = "Bedrock model ID for chat completions"
+  type        = string
+  default     = "anthropic.claude-3-sonnet-20240229-v1:0"
+}

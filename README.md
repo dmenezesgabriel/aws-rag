@@ -38,13 +38,19 @@ API_URL=$(terraform output -raw api_endpoint)
 ```
 
 ```sh
-curl $API_URL/hello
+curl -X POST $API_URL/chat \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"222","session_id":"abc222","content":"Hello! What is your name?"}'
 ```
 
 ```sh
-curl $API_URL/hello/Alice
+curl "$API_URL/messages?user_id=222&session_id=abc222&limit=20"
 ```
 
 ```sh
-curl $API_URL/health
+curl "$API_URL/sessions/123"
+```
+
+```sh
+curl "$API_URL/health"
 ```

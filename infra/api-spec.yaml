@@ -1,52 +1,133 @@
 openapi: 3.0.1
 info:
-  title: Hello World API
-  description: Simple Hello World API with Lambda backend
+  title: Chat API
+  description: Conversational AI API with DynamoDB memory and Bedrock integration
   version: 1.0.0
 
 paths:
-  /hello:
-    get:
-      summary: Get hello world message
+  /chat:
+    post:
+      summary: Send a chat message
+      description: Send a user message and trigger async processing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - session_id
+                - content
+              properties:
+                user_id:
+                  type: string
+                  example: "123"
+                session_id:
+                  type: string
+                  example: "abc123"
+                content:
+                  type: string
+                  example: "What's the weather today?"
       responses:
-        "200":
-          description: Successful response
+        "202":
+          description: Message accepted for processing
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message:
+                  message_id:
                     type: string
                   status:
                     type: string
+                  timestamp:
+                    type: string
+        "400":
+          description: Bad request
+        "500":
+          description: Internal server error
       x-amazon-apigateway-integration:
         uri: ${lambda_invoke_arn}
         httpMethod: POST
         type: aws_proxy
         passthroughBehavior: when_no_match
 
-  /hello/{name}:
+  /messages:
     get:
-      summary: Get personalized hello message
+      summary: Get conversation messages
+      description: Retrieve messages for a specific session
       parameters:
-        - name: name
-          in: path
+        - name: user_id
+          in: query
           required: true
           schema:
             type: string
+          example: "123"
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "abc123"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+          example: 50
       responses:
         "200":
-          description: Successful response
+          description: List of messages
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message:
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+        "400":
+          description: Bad request
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: ${lambda_invoke_arn}
+        httpMethod: POST
+        type: aws_proxy
+        passthroughBehavior: when_no_match
+
+  /sessions/{user_id}:
+    get:
+      summary: Get user sessions
+      description: Retrieve all active sessions for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "123"
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
                     type: string
-                  status:
-                    type: string
+                  sessions:
+                    type: array
+                    items:
+                      type: string
+        "500":
+          description: Internal server error
       x-amazon-apigateway-integration:
         uri: ${lambda_invoke_arn}
         httpMethod: POST
@@ -55,10 +136,10 @@ paths:
 
   /health:
     get:
-      summary: Health check endpoint
+      summary: Health check
       responses:
         "200":
-          description: Health status
+          description: Service is healthy
           content:
             application/json:
               schema:
