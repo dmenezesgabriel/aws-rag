@@ -1,0 +1,75 @@
+openapi: 3.0.1
+info:
+  title: Hello World API
+  description: Simple Hello World API with Lambda backend
+  version: 1.0.0
+
+paths:
+  /hello:
+    get:
+      summary: Get hello world message
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  status:
+                    type: string
+      x-amazon-apigateway-integration:
+        uri: ${lambda_invoke_arn}
+        httpMethod: POST
+        type: aws_proxy
+        passthroughBehavior: when_no_match
+
+  /hello/{name}:
+    get:
+      summary: Get personalized hello message
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  status:
+                    type: string
+      x-amazon-apigateway-integration:
+        uri: ${lambda_invoke_arn}
+        httpMethod: POST
+        type: aws_proxy
+        passthroughBehavior: when_no_match
+
+  /health:
+    get:
+      summary: Health check endpoint
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+      x-amazon-apigateway-integration:
+        uri: ${lambda_invoke_arn}
+        httpMethod: POST
+        type: aws_proxy
+        passthroughBehavior: when_no_match
