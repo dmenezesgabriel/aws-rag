@@ -5,6 +5,7 @@ from datetime import datetime
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.utilities.typing import LambdaContext
 from boto3.dynamodb.conditions import Key
 
 logger = Logger()
@@ -115,7 +116,7 @@ def save_assistant_message(
 
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
-def lambda_handler(event, context):
+def lambda_handler(event, context: LambdaContext):
     """
     Worker Lambda triggered by SQS.
     Processes chat messages using Bedrock and saves responses.
