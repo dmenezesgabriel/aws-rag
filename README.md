@@ -1,3 +1,7 @@
+# Serverless LLM API
+
+## How it works
+
 ```txt
 Frontend
   ↓
@@ -17,6 +21,12 @@ Frontend (Polling)
   └── GET /messages → Returns latest conversation
 ```
 
+![diagram](assets/serverless_chat.png)
+
+## Usage
+
+### Deploy
+
 ```sh
 cd infra
 ```
@@ -32,6 +42,8 @@ terraform plan
 ```sh
 terraform apply --auto-approve
 ```
+
+### HTTP Requests
 
 ```sh
 API_URL=$(terraform output -raw api_endpoint)
