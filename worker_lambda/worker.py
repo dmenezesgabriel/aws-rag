@@ -2,7 +2,7 @@ import json
 import os
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Union
 
 import boto3
@@ -97,7 +97,9 @@ class DynamoDBRepository:
         metadata: AssistantMetadata,
     ) -> str:
         message_id: str = str(uuid.uuid4())
-        timestamp: str = datetime.utcnow().isoformat() + "Z"
+        timestamp: str = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
 
         pk: str = f"USER#{user_id}#SESSION#{session_id}"
         sk: str = timestamp
@@ -238,9 +240,9 @@ class Worker:
             self.llm_provider.build_bedrock_messages(conversation_history)
         )
 
-        start_time: datetime = datetime.utcnow()
+        start_time: datetime = datetime.now(timezone.utc)
         llm_response: LLMResponse = self.llm_provider.invoke_llm(llm_messages)
-        end_time: datetime = datetime.utcnow()
+        end_time: datetime = datetime.now(timezone.utc)
 
         latency_ms: int = int((end_time - start_time).total_seconds() * 1000)
 

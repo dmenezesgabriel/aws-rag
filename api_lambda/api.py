@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Union
 
 import boto3
@@ -10,6 +10,7 @@ from aws_lambda_powertools.event_handler import APIGatewayRestResolver
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from boto3.dynamodb.conditions import Key
+from pydantic import BaseModel, Field
 
 logger: Logger = Logger()
 app: APIGatewayRestResolver = APIGatewayRestResolver()
@@ -21,8 +22,52 @@ dynamodb_resource = boto3.resource("dynamodb")
 sqs_client = boto3.client("sqs")
 
 
-class DynamoDBRepository:
+class MessageMetadata(BaseModel):
+    tokens: int = Field(default=0)
+    source: str = Field(default="api")
 
+
+class MessageInDB(BaseModel):
+    PK: str
+    SK: str
+    message_id: str
+    role: str
+    content: Union[str, Dict[str, Union[str, int]]]
+    created_at: str
+    session_status: str
+    model: Optional[str] = None
+    metadata: MessageMetadata
+
+
+class SendMessageRequest(BaseModel):
+    user_id: str
+    session_id: str
+    content: str
+
+
+class GetMessagesQueryParams(BaseModel):
+    user_id: str
+    session_id: str
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class MessageSentResponse(BaseModel):
+    message_id: str
+    status: str = "processing"
+    timestamp: str
+
+
+class ConversationResponse(BaseModel):
+    messages: List[MessageInDB]
+    count: int
+
+
+class UserSessionResponse(BaseModel):
+    user_id: str
+    sessions: List[str]
+
+
+class DynamoDBRepository:
     def __init__(self, table_name: str, dynamodb_resource: Any):
         self.table: Any = dynamodb_resource.Table(table_name)
         logger.info(f"DynamoDBRepository initialized for table: {table_name}")
@@ -32,16 +77,19 @@ class DynamoDBRepository:
 
     def query_messages(
         self, user_id: str, session_id: str, limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    ) -> List[MessageInDB]:
         pk: str = f"USER#{user_id}#SESSION#{session_id}"
 
         response: Dict[str, Any] = self.table.query(
             KeyConditionExpression=Key("PK").eq(pk),
-            ScanIndexForward=False,  # Most recent first
+            ScanIndexForward=False,
             Limit=limit,
         )
 
-        messages: List[Dict[str, Any]] = response.get("Items", [])
+        messages_raw: List[Dict[str, Any]] = response.get("Items", [])
+        messages: List[MessageInDB] = [
+            MessageInDB.model_validate(item) for item in messages_raw
+        ]
         messages.reverse()
         return messages
 
@@ -56,11 +104,13 @@ class DynamoDBRepository:
         sessions: Set[str] = set()
         for item in response.get("Items", []):
             pk: str = item["PK"]
-            session_id: Optional[str] = (
-                pk.split("#SESSION#")[1] if "#SESSION#" in pk else None
-            )
-            if session_id:
+            try:
+                session_id: str = pk.split("#SESSION#")[1]
                 sessions.add(session_id)
+            except IndexError:
+                logger.warning(
+                    f"PK format incorrect for session extraction: {pk}"
+                )
 
         return list(sessions)
 
@@ -71,37 +121,36 @@ class SQSRepository:
         self.sqs_client: Any = sqs_client
 
     def send_message(self, message_body: Dict[str, Any]) -> None:
-        """Sends a JSON message to the SQS queue."""
         self.sqs_client.send_message(
             QueueUrl=self.queue_url, MessageBody=json.dumps(message_body)
         )
 
 
 class ChatService:
-    def __init__(self, ddb_repo: DynamoDBRepository, sqs_repo: SQSRepository):
-        self.ddb_repo: DynamoDBRepository = ddb_repo
-        self.sqs_repo: SQSRepository = sqs_repo
+    def __init__(
+        self,
+        dynamodb_repository: DynamoDBRepository,
+        sqs_repository: SQSRepository,
+    ):
+        self.dynamodb_repository: DynamoDBRepository = dynamodb_repository
+        self.sqs_repository: SQSRepository = sqs_repository
 
-    def send_message(self, body: Dict[str, str]) -> Dict[str, Any]:
-        user_id: Optional[str] = body.get("user_id")
-        session_id: Optional[str] = body.get("session_id")
-        content: Optional[str] = body.get("content")
-
-        if not all([user_id, session_id, content]):
-            return {
-                "statusCode": 400,
-                "body": json.dumps(
-                    {"error": "user_id, session_id, and content are required"}
-                ),
-            }
+    def send_message(self, body: SendMessageRequest) -> MessageSentResponse:
+        user_id: str = body.user_id
+        session_id: str = body.session_id
+        content: str = body.content
 
         message_id: str = str(uuid.uuid4())
-        timestamp: str = datetime.now().isoformat() + "Z"
+        timestamp: str = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
 
         pk: str = f"USER#{user_id}#SESSION#{session_id}"
         sk: str = timestamp
 
-        item: Dict[str, Any] = {
+        token_count: int = len(content.split())
+
+        item_data = {
             "PK": pk,
             "SK": sk,
             "message_id": message_id,
@@ -109,88 +158,73 @@ class ChatService:
             "content": content,
             "created_at": timestamp,
             "session_status": "active",
-            "metadata": {
-                "tokens": len(content.split() if content else ""),
-                "source": "api",
-            },
+            "metadata": MessageMetadata(tokens=token_count).model_dump(),
         }
-        self.ddb_repo.put_item(item)
+
+        MessageInDB.model_validate(item_data)
+        self.dynamodb_repository.put_item(item_data)
         logger.info(f"Saved user message: {message_id}")
 
-        sqs_message: Dict[str, Optional[str]] = {
+        sqs_message: Dict[str, str] = {
             "user_id": user_id,
             "session_id": session_id,
             "message_id": message_id,
-            "timestamp": timestamp,
         }
-        self.sqs_repo.send_message(sqs_message)
+        self.sqs_repository.send_message(sqs_message)
         logger.info(f"Sent message to SQS: {message_id}")
 
-        return {
-            "statusCode": 202,
-            "body": json.dumps(
-                {
-                    "message_id": message_id,
-                    "status": "processing",
-                    "timestamp": timestamp,
-                }
-            ),
-        }
+        return MessageSentResponse(message_id=message_id, timestamp=timestamp)
 
-    def get_messages(self, query_params: Dict[str, Any]) -> Dict[str, Any]:
-        user_id: Optional[str] = query_params.get("user_id")
-        session_id: Optional[str] = query_params.get("session_id")
-        limit: int = int(query_params.get("limit", 50))
-
-        if not user_id or not session_id:
-            return {
-                "statusCode": 400,
-                "body": json.dumps(
-                    {"error": "user_id and session_id are required"}
-                ),
-            }
-
-        messages: List[Dict[str, Any]] = self.ddb_repo.query_messages(
-            user_id, session_id, limit
+    def get_messages(
+        self, query_params: GetMessagesQueryParams
+    ) -> ConversationResponse:
+        messages: List[MessageInDB] = self.dynamodb_repository.query_messages(
+            query_params.user_id, query_params.session_id, query_params.limit
         )
 
-        return {
-            "statusCode": 200,
-            "body": json.dumps(
-                {"messages": messages, "count": len(messages)}, default=str
-            ),
-        }
+        return ConversationResponse(messages=messages, count=len(messages))
 
-    def get_user_sessions(self, user_id: str) -> Dict[str, Any]:
-        sessions: List[str] = self.ddb_repo.get_user_sessions(user_id)
-
-        return {
-            "statusCode": 200,
-            "body": json.dumps({"user_id": user_id, "sessions": sessions}),
-        }
+    def get_user_sessions(self, user_id: str) -> UserSessionResponse:
+        sessions: List[str] = self.dynamodb_repository.get_user_sessions(
+            user_id
+        )
+        return UserSessionResponse(user_id=user_id, sessions=sessions)
 
 
-ddb_repo: DynamoDBRepository = DynamoDBRepository(
+dynamodb_repository: DynamoDBRepository = DynamoDBRepository(
     DYNAMODB_TABLE, dynamodb_resource
 )
-sqs_repo: SQSRepository = SQSRepository(SQS_QUEUE_URL, sqs_client)
-chat_service: ChatService = ChatService(ddb_repo, sqs_repo)
+sqs_repository: SQSRepository = SQSRepository(SQS_QUEUE_URL, sqs_client)
+chat_service: ChatService = ChatService(dynamodb_repository, sqs_repository)
 
 
 @app.post("/chat")
 def post_chat_message() -> Dict[str, Any]:
     try:
-        body: Dict[str, str] = app.current_event.json_body
-        return chat_service.send_message(body)
+        body: SendMessageRequest = SendMessageRequest.model_validate(
+            app.current_event.json_body
+        )
+        response_model: MessageSentResponse = chat_service.send_message(body)
+
+        return {
+            "statusCode": 202,
+            "body": response_model.model_dump_json(),
+        }
     except Exception as e:
         logger.exception("Error processing message in route")
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        error_message = (
+            str(e) if isinstance(e, ValueError) else "Internal Server Error"
+        )
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": error_message}),
+        }
 
 
 @app.get("/messages")
 def get_conversation_messages() -> Dict[str, Any]:
     try:
-        query_params: Dict[str, Optional[str]] = {
+        query_params_raw: Dict[str, Any] = {
             "user_id": app.current_event.get_query_string_value("user_id"),
             "session_id": app.current_event.get_query_string_value(
                 "session_id"
@@ -199,16 +233,40 @@ def get_conversation_messages() -> Dict[str, Any]:
                 "limit", default_value="50"
             ),
         }
-        return chat_service.get_messages(query_params)
+        query_params: GetMessagesQueryParams = (
+            GetMessagesQueryParams.model_validate(query_params_raw)
+        )
+
+        response_model: ConversationResponse = chat_service.get_messages(
+            query_params
+        )
+
+        return {
+            "statusCode": 200,
+            "body": response_model.model_dump_json(by_alias=True),
+        }
     except Exception as e:
         logger.exception("Error fetching messages in route")
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        error_message = (
+            str(e) if isinstance(e, ValueError) else "Internal Server Error"
+        )
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": error_message}),
+        }
 
 
 @app.get("/sessions/<user_id>")
 def get_sessions(user_id: str) -> Dict[str, Any]:
     try:
-        return chat_service.get_user_sessions(user_id)
+        response_model: UserSessionResponse = chat_service.get_user_sessions(
+            user_id
+        )
+
+        return {
+            "statusCode": 200,
+            "body": response_model.model_dump_json(),
+        }
     except Exception as e:
         logger.exception("Error fetching sessions in route")
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}

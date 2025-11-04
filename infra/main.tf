@@ -2,10 +2,10 @@ terraform {
   required_version = ">= 1.0"
 
   backend "s3" {
-    bucket         = "tfstate-chatbot-api"
-    key            = "infra/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
+    bucket  = "tfstate-chatbot-api"
+    key     = "infra/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
   }
 
   required_providers {
@@ -308,16 +308,28 @@ resource "null_resource" "build_api_lambda" {
     command = <<EOT
       set -e
       BUILD_DIR=.terraform/api_lambda_build
+      REQUIREMENTS_FILE=../api_lambda/requirements.txt
+
+      rm -rf $BUILD_DIR
       mkdir -p $BUILD_DIR
       cp ../api_lambda/api.py $BUILD_DIR/
+      cp $REQUIREMENTS_FILE $BUILD_DIR/
 
-      # Install dependencies into build folder
-      pip install --target $BUILD_DIR -r ../api_lambda/requirements.txt
+      pip install \
+        --target $BUILD_DIR \
+        -r $BUILD_DIR/requirements.txt \
+        --platform manylinux2014_x86_64 \
+        --only-binary :all: \
+        --implementation cp \
+        --python-version 3.12 \
+        --upgrade \
+        --no-cache-dir
 
-      # Zip the contents
       cd $BUILD_DIR
       zip -r ../api_lambda.zip .
     EOT
+    # Run the command from the module root for correct relative paths
+    working_dir = path.module
   }
 }
 
@@ -334,7 +346,7 @@ resource "aws_lambda_function" "api_lambda" {
   function_name    = "${var.project_name}-api"
   role             = aws_iam_role.api_lambda_role.arn
   handler          = "api.lambda_handler"
-  runtime          = "python3.11"
+  runtime          = "python3.12"
   timeout          = 30
   memory_size      = 512
   source_code_hash = data.archive_file.api_lambda_zip.output_base64sha256

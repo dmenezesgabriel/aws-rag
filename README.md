@@ -40,16 +40,16 @@ API_URL=$(terraform output -raw api_endpoint)
 ```sh
 API_URL=$(terraform output -raw api_endpoint)
 uv run --with httpie http POST "$API_URL/chat" \
-  user_id=333 \
-  session_id=abc333 \
+  user_id=334 \
+  session_id=abc334 \
   content="How much is 3 + 3?"
 ```
 
 ```sh
 API_URL=$(terraform output -raw api_endpoint)
 uv run --with httpie http "$API_URL/messages" \
-  user_id==333 \
-  session_id==abc333 \
+  user_id==334 \
+  session_id==abc334 \
   limit==20
 ```
 
