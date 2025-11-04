@@ -83,3 +83,19 @@ resource "aws_iam_role_policy_attachment" "api_gateway_cloudwatch" {
   role       = aws_iam_role.api_gateway_cloudwatch.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
 }
+
+
+output "api_endpoint" {
+  description = "Base URL for the API Gateway stage"
+  value       = aws_api_gateway_stage.api_stage.invoke_url
+}
+
+output "api_id" {
+  description = "API Gateway REST API ID"
+  value       = aws_api_gateway_rest_api.api.id
+}
+
+output "api_stage" {
+  description = "API Gateway stage name"
+  value       = aws_api_gateway_stage.api_stage.stage_name
+}

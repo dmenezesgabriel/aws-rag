@@ -7,13 +7,21 @@ from typing import Any, Dict, List, Optional, Set, Union
 import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.event_handler import APIGatewayRestResolver
+from aws_lambda_powertools.event_handler.api_gateway import CORSConfig
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from boto3.dynamodb.conditions import Key
 from pydantic import BaseModel, Field
 
+cors_config = CORSConfig(
+    allow_origin="*",
+    allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["Content-Type"],
+    max_age=300,
+)
+
 logger: Logger = Logger()
-app: APIGatewayRestResolver = APIGatewayRestResolver()
+app: APIGatewayRestResolver = APIGatewayRestResolver(cors=cors_config)
 
 DYNAMODB_TABLE: str = os.environ["DYNAMODB_TABLE"]
 SQS_QUEUE_URL: str = os.environ["SQS_QUEUE_URL"]
