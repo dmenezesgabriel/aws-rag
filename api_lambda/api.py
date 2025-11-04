@@ -90,7 +90,7 @@ class DynamoDBRepository:
 
         response: Dict[str, Any] = self.table.query(
             KeyConditionExpression=Key("PK").eq(pk),
-            ScanIndexForward=False,
+            ScanIndexForward=True,
             Limit=limit,
         )
 
@@ -98,7 +98,6 @@ class DynamoDBRepository:
         messages: List[MessageInDB] = [
             MessageInDB.model_validate(item) for item in messages_raw
         ]
-        messages.reverse()
         return messages
 
     def get_user_sessions(self, user_id: str) -> List[str]:

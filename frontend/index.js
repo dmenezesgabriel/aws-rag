@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
-// Replace this with your actual API endpoint from Terraform output
 const API_ENDPOINT = window.API_ENDPOINT || "YOUR_API_ENDPOINT_HERE";
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -11,27 +10,22 @@ const App = () => {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [userId] = useState(
-    () =>
-      localStorage.getItem("userId") ||
-      (() => {
-        const id = generateId();
-        localStorage.setItem("userId", id);
-        return id;
-      })()
-  );
-  const [sessionId, setSessionId] = useState(
-    () =>
-      localStorage.getItem("sessionId") ||
-      (() => {
-        const id = generateId();
-        localStorage.setItem("sessionId", id);
-        return id;
-      })()
-  );
+  const [userId] = useState(() => {
+    const existing = localStorage.getItem("userId");
+    if (existing) return existing;
+    const id = generateId();
+    localStorage.setItem("userId", id);
+    return id;
+  });
+  const [sessionId, setSessionId] = useState(() => {
+    const existing = localStorage.getItem("sessionId");
+    if (existing) return existing;
+    const id = generateId();
+    localStorage.setItem("sessionId", id);
+    return id;
+  });
 
   const messagesEndRef = useRef(null);
-  const pollingIntervalRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -52,11 +46,14 @@ const App = () => {
       }
 
       const data = await response.json();
-      setMessages(data.messages || []);
+      const messages = data?.body?.messages ?? [];
+      setMessages(messages);
       setError(null);
+      return messages;
     } catch (err) {
       console.error("Error fetching messages:", err);
       setError("Failed to load messages. Please check your API endpoint.");
+      return [];
     }
   };
 
@@ -64,30 +61,32 @@ const App = () => {
     fetchMessages();
   }, [sessionId]);
 
-  const startPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
+  const pollForAssistantResponse = async (userMessageTimestamp) => {
+    let retries = 0;
+    const maxRetries = 15; // ~30 seconds
+    const pollInterval = 2000;
+
+    while (retries < maxRetries) {
+      retries++;
+
+      try {
+        const newMessages = await fetchMessages();
+
+        const hasNewAssistantResponse = newMessages.some(
+          (m) => m.role === "assistant" && m.created_at > userMessageTimestamp
+        );
+
+        if (hasNewAssistantResponse) break;
+
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      } catch (err) {
+        console.error("Polling error:", err);
+        break;
+      }
     }
 
-    pollingIntervalRef.current = setInterval(() => {
-      fetchMessages();
-    }, 2000);
-
-    setTimeout(() => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    }, 30000);
+    setIsLoading(false);
   };
-
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
 
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -116,12 +115,15 @@ const App = () => {
         throw new Error("Failed to send message");
       }
 
+      const responseData = await response.json();
+      const userMessageTimestamp = responseData.body.timestamp;
+
       await fetchMessages();
-      startPolling();
+
+      await pollForAssistantResponse(userMessageTimestamp);
     } catch (err) {
       console.error("Error sending message:", err);
       setError("Failed to send message. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -135,9 +137,7 @@ const App = () => {
   };
 
   const formatContent = (content) => {
-    if (typeof content === "string") {
-      return content;
-    }
+    if (typeof content === "string") return content;
     return JSON.stringify(content, null, 2);
   };
 
