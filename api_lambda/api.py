@@ -216,7 +216,7 @@ def post_chat_message() -> Dict[str, Any]:
 
         return {
             "statusCode": 202,
-            "body": response_model.model_dump_json(),
+            "body": response_model.model_dump(),
         }
     except Exception as e:
         logger.exception("Error processing message in route")
@@ -251,7 +251,7 @@ def get_conversation_messages() -> Dict[str, Any]:
 
         return {
             "statusCode": 200,
-            "body": response_model.model_dump_json(by_alias=True),
+            "body": response_model.model_dump(by_alias=True),
         }
     except Exception as e:
         logger.exception("Error fetching messages in route")
@@ -273,7 +273,7 @@ def get_sessions(user_id: str) -> Dict[str, Any]:
 
         return {
             "statusCode": 200,
-            "body": response_model.model_dump_json(),
+            "body": response_model.model_dump(),
         }
     except Exception as e:
         logger.exception("Error fetching sessions in route")
