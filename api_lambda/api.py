@@ -4,12 +4,12 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Union
 
-import boto3  # type: ignore
+import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.event_handler import APIGatewayRestResolver
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from boto3.dynamodb.conditions import Key  # type: ignore
+from boto3.dynamodb.conditions import Key
 
 logger: Logger = Logger()
 app: APIGatewayRestResolver = APIGatewayRestResolver()

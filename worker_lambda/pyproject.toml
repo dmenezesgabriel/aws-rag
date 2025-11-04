@@ -8,5 +8,8 @@ dependencies = [
     "aws-lambda-powertools>=3.22.0",
     "aws-xray-sdk>=2.15.0",
     "boto3>=1.40.64",
+    "langchain-core>=1.0.3",
+    "langchain-aws>=1.0.0",
+    "pydantic>=2.12.3",
 ]
 
